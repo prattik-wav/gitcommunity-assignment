@@ -358,7 +358,7 @@ function scheduleBunny() {
 }
 
 function peekBunny(isSad) {
-    if (!isPlaying && isSad === true) return; // shouldn't happen, but safeguard
+    if (!isPlaying && isSad === true) return; // for safety
 
     // Clear old positions completely using 'auto' to override CSS defaults
     bunnyEl.className = '';
