@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pop It! - Whac-A-Mole</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <ul class="bg-bubbles">
+        <li></li>
+        <li></li>
+        <li></li>
+        <li></li>
+        <li></li>
+        <li></li>
+        <li></li>
+        <li></li>
+        <li></li>
+        <li></li>
+    </ul>
+
+    <div class="app-container">
+
+        <header class="header">
+            <h1 class="title">Pop It!</h1>
+            <p class="subtitle">Infinite whac-a-mole. Keep the board flat.</p>
+        </header>
+
+        <div class="scoreboard">
+            <div class="stat-box highlight">
+                <div class="stat-value" id="scoreDisplay">0</div>
+                <div class="stat-label">Score</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-value" id="bestDisplay">0</div>
+                <div class="stat-label">Best</div>
+            </div>
+        </div>
+
+        <div class="board-card">
+            <div class="grid" id="board">
+            </div>
+        </div>
+
+        <div class="controls">
+            <button class="btn btn-primary" id="playBtn">Play</button>
+            <button class="btn" id="resetBtn">Reset</button>
+            <button class="btn" id="darkBtn">Night</button>
+            <button class="btn" id="soundBtn">Sound</button>
+        </div>
+
+        <div class="theme-picker">
+            <span class="theme-label">Color Theme:</span>
+            <div class="theme-dots">
+                <button class="theme-dot active" data-theme="pink"></button>
+                <button class="theme-dot" data-theme="purple"></button>
+                <button class="theme-dot" data-theme="blue"></button>
+                <button class="theme-dot" data-theme="green"></button>
+                <button class="theme-dot" data-theme="orange"></button>
+            </div>
+        </div>
+
+        <div id="cuteBunny">
+            <div id="bunnySpeech" class="speech-bubble"></div>
+            <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                <g class="bunny-body">
+                    <ellipse cx="32" cy="30" rx="10" ry="25" fill="#ffffff" class="bunny-stroke"
+                        transform="rotate(-15 32 30)" />
+                    <ellipse cx="68" cy="30" rx="10" ry="25" fill="#ffffff" class="bunny-stroke"
+                        transform="rotate(15 68 30)" />
+                    <ellipse cx="32" cy="30" rx="4" ry="15" class="bunny-inner" transform="rotate(-15 32 30)" />
+                    <ellipse cx="68" cy="30" rx="4" ry="15" class="bunny-inner" transform="rotate(15 68 30)" />
+                    <circle cx="50" cy="65" r="30" fill="#ffffff" class="bunny-stroke" />
+                    <circle cx="40" cy="60" r="4" class="bunny-eye" />
+                    <circle cx="60" cy="60" r="4" class="bunny-eye" />
+                    <circle cx="32" cy="65" r="6" class="bunny-cheek" />
+                    <circle cx="68" cy="65" r="6" class="bunny-cheek" />
+                    <path id="bunnyMouth" d="M46 68 Q 50 72 54 68" class="bunny-stroke" fill="none"
+                        stroke-linecap="round" />
+                </g>
+            </svg>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+
+</html>
