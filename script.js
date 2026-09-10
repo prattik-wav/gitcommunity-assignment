@@ -306,9 +306,28 @@ document.querySelectorAll('.theme-dot').forEach(function (dot) {
 });
 
 var titleEl = document.querySelector('.title');
+var titleHint = document.getElementById('titleHint');
 var titleClicks = 0;
+var hintTimer = null;
+
+function showHint() {
+    if (document.body.classList.contains('rainbow-mode')) return;
+    if (titleHint) titleHint.classList.add('show');
+    setTimeout(() => {
+        if (titleHint) titleHint.classList.remove('show');
+    }, 5000); // hide after 5s
+}
+
+// Show hint periodically if not in rainbow mode
+setInterval(() => {
+    if (!document.body.classList.contains('rainbow-mode') && Math.random() > 0.5) {
+        showHint();
+    }
+}, 20000); // check every 20s
+
 titleEl.addEventListener('click', function () {
     titleClicks++;
+    if (titleHint) titleHint.classList.remove('show'); // hide immediately on click
     if (titleClicks >= 5) {
         document.body.classList.toggle('rainbow-mode');
         titleClicks = 0;
