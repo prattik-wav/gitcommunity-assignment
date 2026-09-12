@@ -1,503 +1,570 @@
-var TOTAL_BUBBLES = 40; // 5 rows x 8 columns
+let TOTAL_BUBBLES = 40;
+let myScore = 0;
+let myBestScore = 0;
+let comboStreak = 0;
 
-var themes = {
-    pink: { primary: '#ff477e', dark: '#d81b53' },
-    purple: { primary: '#9d4edd', dark: '#7b2cbf' },
-    blue: { primary: '#4361ee', dark: '#3a0ca3' },
-    green: { primary: '#06d6a0', dark: '#02c39a' },
-    orange: { primary: '#f77f00', dark: '#d62828' }
-};
+// try to load saved data
+if (localStorage.getItem('popit-best')) {
+    myBestScore = parseInt(localStorage.getItem('popit-best'));
+}
 
-var score = 0;
-var best = parseInt(localStorage.getItem('popit-best')) || 0;
-var comboStreak = 0;
-var soundOn = localStorage.getItem('popit-sound') !== 'false';
-var darkMode = localStorage.getItem('popit-dark') === 'true';
-var currentTheme = localStorage.getItem('popit-theme') || 'pink';
+let soundIsOn = true;
+if (localStorage.getItem('popit-sound') == 'false') {
+    soundIsOn = false;
+}
 
-var isPlaying = false;
-var spawnTimer = null;
-var currentBubble = null;
+let darkModeIsOn = false;
+if (localStorage.getItem('popit-dark') == 'true') {
+    darkModeIsOn = true;
+}
 
-var board = document.getElementById('board');
-var scoreDisplay = document.getElementById('scoreDisplay');
-var bestDisplay = document.getElementById('bestDisplay');
-var playBtn = document.getElementById('playBtn');
-var resetBtn = document.getElementById('resetBtn');
-var darkBtn = document.getElementById('darkBtn');
-var soundBtn = document.getElementById('soundBtn');
-var bunnyEl = document.getElementById('cuteBunny');
-var speechEl = document.getElementById('bunnySpeech');
+let currentThemeColor = 'pink';
+if (localStorage.getItem('popit-theme')) {
+    currentThemeColor = localStorage.getItem('popit-theme');
+}
 
-// Web Audio Context for sound effects
-var audioCtx = null;
+let isPlayingGame = false;
+let spawnBubbleTimer;
+let theCurrentBubble = null;
 
-function initAudio() {
-    if (!audioCtx) {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    }
-    if (audioCtx.state === 'suspended') {
-        audioCtx.resume();
+// get HTML elements
+let boardArea = document.getElementById('board');
+let scoreDisplay = document.getElementById('scoreDisplay');
+let bestDisplay = document.getElementById('bestDisplay');
+let btnPlay = document.getElementById('playBtn');
+let btnReset = document.getElementById('resetBtn');
+let btnDark = document.getElementById('darkBtn');
+let btnSound = document.getElementById('soundBtn');
+let myTitle = document.getElementById('mainTitle');
+let myHint = document.getElementById('titleHint');
+let bunnyEl = document.getElementById('cuteBunny');
+let speechEl = document.getElementById('bunnySpeech');
+
+// Load my sound files
+let popSound = new Audio('assets/pop.mp3');
+let goldenSound = new Audio('assets/coin.mp3');
+let missSound = new Audio('assets/miss.mp3');
+let cheerSound = new Audio('assets/cheer.mp3');
+
+function playSound(type) {
+    if (soundIsOn == false) return; // do nothing if muted
+
+    if (type == 'pop') {
+        popSound.currentTime = 0; // reset to start 
+        popSound.play();
+    } else if (type == 'golden') {
+        goldenSound.currentTime = 0;
+        goldenSound.play();
+    } else if (type == 'miss') {
+        missSound.currentTime = 0;
+        missSound.play();
+    } else if (type == 'cheer') {
+        cheerSound.currentTime = 0;
+        cheerSound.play();
     }
 }
 
-function playSound(freq, duration) {
-    if (!soundOn || !audioCtx) return;
-    try {
-        var osc = audioCtx.createOscillator();
-        var gain = audioCtx.createGain();
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(freq / 2, audioCtx.currentTime + duration);
-        gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
-        osc.start();
-        osc.stop(audioCtx.currentTime + duration);
-    } catch (e) {
-        console.warn('Audio play failed', e);
-    }
-}
-
+// build the game board
 function createBoard() {
-    board.innerHTML = '';
-    for (var i = 0; i < TOTAL_BUBBLES; i++) {
-        var bubble = document.createElement('div');
+    boardArea.innerHTML = ''; // clear it first
+
+    for (let i = 0; i < TOTAL_BUBBLES; i++) {
+        let bubble = document.createElement('div');
         bubble.className = 'bubble popped';
 
+        // mouse click
         bubble.addEventListener('mousedown', function (e) {
             if (e.button !== 0) return;
             e.preventDefault();
             popBubble(this);
         });
 
-        bubble.addEventListener('touchstart', function (e) {
-            e.preventDefault();
-            popBubble(this);
-        }, { passive: false });
-
-        board.appendChild(bubble);
+        boardArea.appendChild(bubble);
     }
 }
 
-function resetGame() {
-    score = 0;
-    best = 0;
+function updateScoreText() {
+    scoreDisplay.innerText = myScore;
+    bestDisplay.innerText = myBestScore;
+}
+
+function resetTheGame() {
+    myScore = 0;
     comboStreak = 0;
-    save();
-    updateDisplay();
+    saveMyData();
+    updateScoreText();
 
-    isPlaying = false;
-    playBtn.textContent = 'Play';
-    playBtn.classList.add('btn-primary');
-    clearTimeout(spawnTimer);
+    isPlayingGame = false;
+    btnPlay.innerText = 'Play';
+    btnPlay.classList.add('btn-primary');
+    clearTimeout(spawnBubbleTimer);
 
-    if (currentBubble) {
-        clearTimeout(currentBubble.dataset.warningId);
-        clearTimeout(currentBubble.dataset.escapeId);
-        currentBubble = null;
+    if (theCurrentBubble) {
+        clearTimeout(theCurrentBubble.dataset.warningId);
+        clearTimeout(theCurrentBubble.dataset.escapeId);
+        theCurrentBubble = null;
     }
 
-    document.querySelectorAll('.bubble').forEach(function (b) {
-        b.className = 'bubble popped';
-    });
+    let allBubbles = document.querySelectorAll('.bubble');
+    for (let i = 0; i < allBubbles.length; i++) {
+        allBubbles[i].className = 'bubble popped';
+    }
 }
 
-function toggleGame() {
-    initAudio();
-    isPlaying = !isPlaying;
-
-    if (isPlaying) {
-        playBtn.textContent = 'Pause';
-        playBtn.classList.remove('btn-primary');
-        scheduleNext(200);
+function toggleStartStop() {
+    if (isPlayingGame == false) {
+        isPlayingGame = true;
+        btnPlay.innerText = 'Pause';
+        btnPlay.classList.remove('btn-primary');
+        scheduleNextBubble(200);
     } else {
-        playBtn.textContent = 'Play';
-        playBtn.classList.add('btn-primary');
-        clearTimeout(spawnTimer);
+        isPlayingGame = false;
+        btnPlay.innerText = 'Play';
+        btnPlay.classList.add('btn-primary');
+        clearTimeout(spawnBubbleTimer);
 
-        if (currentBubble) {
-            clearTimeout(currentBubble.dataset.warningId);
-            clearTimeout(currentBubble.dataset.escapeId);
-            currentBubble.className = 'bubble popped';
-            currentBubble = null;
+        if (theCurrentBubble) {
+            clearTimeout(theCurrentBubble.dataset.warningId);
+            clearTimeout(theCurrentBubble.dataset.escapeId);
+            theCurrentBubble.className = 'bubble popped';
+            theCurrentBubble = null;
         }
     }
 }
 
-function scheduleNext(delay) {
-    if (!isPlaying) return;
-    clearTimeout(spawnTimer);
-    spawnTimer = setTimeout(spawnBubble, delay);
+function scheduleNextBubble(delayTime) {
+    if (isPlayingGame == false) return;
+    clearTimeout(spawnBubbleTimer);
+    spawnBubbleTimer = setTimeout(spawnNewBubble, delayTime);
 }
 
-function spawnBubble() {
-    if (!isPlaying) return;
+function spawnNewBubble() {
+    if (isPlayingGame == false) return;
 
-    var inactive = document.querySelectorAll('.bubble.popped');
-    if (inactive.length === 0) return;
+    let inactiveBubbles = document.querySelectorAll('.bubble.popped');
+    if (inactiveBubbles.length === 0) return;
 
-    var bubble = inactive[Math.floor(Math.random() * inactive.length)];
-    currentBubble = bubble;
+    let randomNum = Math.floor(Math.random() * inactiveBubbles.length);
+    let bubble = inactiveBubbles[randomNum];
+    theCurrentBubble = bubble;
 
-    // Warning state
     bubble.classList.remove('popped');
     bubble.classList.add('warning');
 
-    var speedFactor = Math.min(score / 100, 0.75);
-    var warningTime = Math.max(250 * (1 - speedFactor), 100);
+    let speedTracker = myScore / 100;
+    if (speedTracker > 0.75) speedTracker = 0.75;
+
+    let warningTime = 250 * (1 - speedTracker);
+    if (warningTime < 100) warningTime = 100;
 
     bubble.dataset.warningId = setTimeout(function () {
-        if (!isPlaying || currentBubble !== bubble) return;
+        if (isPlayingGame == false || theCurrentBubble !== bubble) return;
 
-        // Fully pop up
         bubble.classList.remove('warning');
-        playSound(300, 0.05);
+        playSound('pop');
 
-        var isGolden = Math.random() < 0.08;
-        if (isGolden) bubble.classList.add('golden');
+        let isGolden = false;
+        if (Math.random() < 0.08) {
+            isGolden = true;
+            bubble.classList.add('golden');
+        }
 
-        var activeTime = Math.max((isGolden ? 600 : 900) * (1 - speedFactor), isGolden ? 250 : 300);
+        let activeTime;
+        if (isGolden == true) {
+            activeTime = 600 * (1 - speedTracker);
+            if (activeTime < 250) activeTime = 250;
+        } else {
+            activeTime = 900 * (1 - speedTracker);
+            if (activeTime < 300) activeTime = 300;
+        }
 
         bubble.dataset.escapeId = setTimeout(function () {
-            escapeBubble(bubble);
+            missedBubble(bubble);
         }, activeTime);
 
     }, warningTime);
 }
 
-function escapeBubble(bubble) {
-    if (!isPlaying || currentBubble !== bubble) return;
+function missedBubble(bubble) {
+    if (isPlayingGame == false || theCurrentBubble !== bubble) return;
 
     bubble.className = 'bubble popped missed';
-    setTimeout(function () { bubble.classList.remove('missed'); }, 400);
+    setTimeout(function () {
+        bubble.classList.remove('missed');
+    }, 400);
 
-    var wasStreak = comboStreak > 0;
-    score = 0;
-    comboStreak = 0;
-    updateDisplay();
-    playSound(150, 0.2); // Miss sound
-    currentBubble = null;
-
-    board.classList.remove('shake');
-    void board.offsetWidth;
-    board.classList.add('shake');
-
-    if (wasStreak) {
-        if (bunnyTimer) clearTimeout(bunnyTimer);
-        peekBunny(true);
+    let didIHaveAStreak = false;
+    if (comboStreak > 0) {
+        didIHaveAStreak = true;
     }
 
-    scheduleNext(150);
+    myScore = 0;
+    comboStreak = 0;
+    updateScoreText();
+    playSound('miss'); // miss sound
+    theCurrentBubble = null;
+
+    // make board shake
+    boardArea.classList.remove('shake');
+    setTimeout(function () {
+        boardArea.classList.add('shake');
+    }, 10);
+
+    if (didIHaveAStreak == true) {
+        if (bunnyTimer) clearTimeout(bunnyTimer);
+        showBunny(true);
+    }
+
+    scheduleNextBubble(150);
 }
 
 function popBubble(bubble) {
-    if (!isPlaying) {
-        toggleGame();
+    if (isPlayingGame == false) {
+        toggleStartStop();
         return;
     }
 
-    if (bubble !== currentBubble || bubble.classList.contains('popped') || bubble.classList.contains('warning')) return;
+    if (bubble !== theCurrentBubble) return;
+    if (bubble.classList.contains('popped')) return;
+    if (bubble.classList.contains('warning')) return;
 
     clearTimeout(bubble.dataset.escapeId);
-    currentBubble = null;
+    theCurrentBubble = null;
 
-    var isGolden = bubble.classList.contains('golden');
+    let isGolden = false;
+    if (bubble.classList.contains('golden')) {
+        isGolden = true;
+    }
 
-    // Visually push the bubble down
     bubble.className = 'bubble popped';
-    playSound(isGolden ? 800 : 400, 0.15); // Pop sound
 
-    var points = isGolden ? 5 : 1;
-    score += points;
-    comboStreak++;
-    if (score > best) best = score;
+    if (isGolden == true) {
+        playSound('golden');
+        myScore = myScore + 5;
+    } else {
+        playSound('pop');
+        myScore = myScore + 1;
+    }
 
+    comboStreak = comboStreak + 1;
+    if (myScore > myBestScore) {
+        myBestScore = myScore;
+    }
+
+    // restart score pop animation
     scoreDisplay.classList.remove('score-pop');
-    void scoreDisplay.offsetWidth;
-    scoreDisplay.classList.add('score-pop');
+    setTimeout(function () {
+        scoreDisplay.classList.add('score-pop');
+    }, 10);
 
-    showFloatingText(bubble, '+' + points, isGolden);
-    checkCombo();
-    updateDisplay();
-    save();
+    showFloatingNumber(bubble, isGolden);
+    checkMyCombo();
+    updateScoreText();
+    saveMyData();
 
-    scheduleNext(50);
+    scheduleNextBubble(50);
 }
 
-function updateDisplay() {
-    scoreDisplay.textContent = score;
-    bestDisplay.textContent = best;
+function showFloatingNumber(element, isGolden) {
+    let rect = element.getBoundingClientRect();
+    let popDiv = document.createElement('div');
+
+    if (isGolden == true) {
+        popDiv.className = 'pop-text golden-text';
+        popDiv.innerText = '+5';
+    } else {
+        popDiv.className = 'pop-text';
+        popDiv.innerText = '+1';
+    }
+
+    popDiv.style.left = (rect.left + rect.width / 2) + 'px';
+    popDiv.style.top = rect.top + 'px';
+    document.body.appendChild(popDiv);
+
+    setTimeout(function () {
+        popDiv.remove();
+    }, 800);
 }
 
-function showFloatingText(element, text, isGolden) {
-    var rect = element.getBoundingClientRect();
-    var el = document.createElement('div');
-    el.className = 'pop-text' + (isGolden ? ' golden-text' : '');
-    el.textContent = text;
-    el.style.left = (rect.left + rect.width / 2) + 'px';
-    el.style.top = rect.top + 'px';
-    document.body.appendChild(el);
-    setTimeout(function () { el.remove(); }, 800);
-}
+function checkMyCombo() {
+    let text = "";
+    let color = "";
 
-var comboTexts = {
-    5: { text: 'Nice', color: '#f77f00' },
-    10: { text: 'Amazing', color: '#ff477e' },
-    15: { text: 'Legendary', color: '#9d4edd' },
-    20: { text: 'Godlike', color: '#4361ee' },
-    30: { text: 'Unstoppable', color: '#06d6a0' }
-};
+    if (comboStreak == 5) {
+        text = 'Nice';
+        color = '#f77f00';
+    } else if (comboStreak == 10) {
+        text = 'Amazing';
+        color = '#ff477e';
+    } else if (comboStreak == 15) {
+        text = 'Legendary';
+        color = '#9d4edd';
+    } else if (comboStreak == 20) {
+        text = 'Godlike';
+        color = '#4361ee';
+    } else if (comboStreak == 30) {
+        text = 'Unstoppable';
+        color = '#06d6a0';
+    }
 
-function checkCombo() {
-    if (comboTexts[comboStreak]) {
-        var el = document.createElement('div');
+    if (text != "") {
+        let el = document.createElement('div');
         el.className = 'combo-text';
-        el.textContent = comboTexts[comboStreak].text;
-        el.style.color = comboTexts[comboStreak].color;
+        el.innerText = text;
+        el.style.color = color;
         document.body.appendChild(el);
-        setTimeout(function () { el.remove(); }, 1000);
+        setTimeout(function () {
+            el.remove();
+        }, 1000);
     }
 }
 
-function applyTheme(name) {
-    var t = themes[name];
-    var s = document.documentElement.style;
-    s.setProperty('--primary', t.primary);
-    s.setProperty('--primary-dark', t.dark);
+// setup themes
+function changeTheme(themeName) {
+    // remove old classes
+    document.body.classList.remove('theme-pink');
+    document.body.classList.remove('theme-purple');
+    document.body.classList.remove('theme-blue');
+    document.body.classList.remove('theme-green');
+    document.body.classList.remove('theme-orange');
 
-    document.querySelectorAll('.theme-dot').forEach(function (dot) {
-        dot.classList.toggle('active', dot.dataset.theme === name);
-    });
-    currentTheme = name;
-}
+    // add new class
+    document.body.classList.add('theme-' + themeName);
+    currentThemeColor = themeName;
 
-function toggleDark() {
-    darkMode = !darkMode;
-    document.body.classList.toggle('dark-mode', darkMode);
-    darkBtn.textContent = darkMode ? 'Light' : 'Night';
-    save();
-}
-
-function toggleSound() {
-    soundOn = !soundOn;
-    soundBtn.textContent = soundOn ? 'Sound' : 'Muted';
-    save();
-}
-
-function save() {
-    localStorage.setItem('popit-best', best);
-    localStorage.setItem('popit-sound', soundOn);
-    localStorage.setItem('popit-dark', darkMode);
-    localStorage.setItem('popit-theme', currentTheme);
-}
-
-// Event Listeners
-playBtn.addEventListener('click', toggleGame);
-resetBtn.addEventListener('click', resetGame);
-darkBtn.addEventListener('click', toggleDark);
-soundBtn.addEventListener('click', toggleSound);
-
-document.querySelectorAll('.theme-dot').forEach(function (dot) {
-    dot.addEventListener('click', function () {
-        applyTheme(dot.dataset.theme);
-        save();
-    });
-});
-
-var titleEl = document.querySelector('.title');
-var titleHint = document.getElementById('titleHint');
-var titleClicks = 0;
-var hintTimer = null;
-
-function showHint() {
-    if (document.body.classList.contains('rainbow-mode')) return;
-    if (titleHint) titleHint.classList.add('show');
-    setTimeout(() => {
-        if (titleHint) titleHint.classList.remove('show');
-    }, 5000); // hide after 5s
-}
-
-// Show hint periodically if not in rainbow mode
-setInterval(() => {
-    if (!document.body.classList.contains('rainbow-mode') && Math.random() > 0.5) {
-        showHint();
-    }
-}, 20000); // check every 20s
-
-titleEl.addEventListener('click', function () {
-    titleClicks++;
-    if (titleHint) titleHint.classList.remove('show'); // hide immediately on click
-    if (titleClicks >= 5) {
-        document.body.classList.toggle('rainbow-mode');
-        titleClicks = 0;
-        if (soundOn && audioCtx) {
-            playSound(800, 0.1);
-            setTimeout(() => playSound(1200, 0.2), 100);
+    // update the little dots
+    let dots = document.querySelectorAll('.theme-dot');
+    for (let i = 0; i < dots.length; i++) {
+        dots[i].classList.remove('active');
+        if (dots[i].getAttribute('data-theme') == themeName) {
+            dots[i].classList.add('active');
         }
     }
-});
-
-// Bunny Logic
-var bunnyTimer = null;
-var bunnyPhrases = [
-    "Good luck!",
-    "You're doing great!",
-    "Ganbare ganbare!",
-    "Machate raho!",
-    "Shabaash!",
-    "Pop 'em all!",
-    "You got this!",
-    "I believe in you!"
-];
-
-var idlePhrases = [
-    "Start fast!",
-    "U lazy as hell",
-    "I'm waiting for u...",
-    "Click Play already!",
-    "Wake up!",
-    "Are we playing or what?",
-    "Boring..."
-];
-
-var sadPhrases = [
-    "Oh no!",
-    "Streak lost...",
-    "Don't give up!",
-    "Oops!",
-    "Aww man!",
-    "Try again!"
-];
-
-function scheduleBunny() {
-    if (bunnyTimer) clearTimeout(bunnyTimer);
-    var delay = Math.random() * 12000 + 8000; // 8-20s
-    bunnyTimer = setTimeout(peekBunny, delay);
 }
 
-function peekBunny(isSad) {
-    if (!isPlaying && isSad === true) return; // for safety
+function saveMyData() {
+    localStorage.setItem('popit-best', myBestScore);
+    localStorage.setItem('popit-sound', soundIsOn);
+    localStorage.setItem('popit-dark', darkModeIsOn);
+    localStorage.setItem('popit-theme', currentThemeColor);
+}
 
-    // Clear old positions completely using 'auto' to override CSS defaults
-    bunnyEl.className = '';
-    bunnyEl.style.top = 'auto'; bunnyEl.style.bottom = 'auto';
-    bunnyEl.style.left = 'auto'; bunnyEl.style.right = 'auto';
-    bunnyEl.style.transform = '';
+// connect buttons
+btnPlay.addEventListener('click', toggleStartStop);
+btnReset.addEventListener('click', resetTheGame);
 
-    var randomText;
-    var mouth = document.getElementById('bunnyMouth');
-
-    if (isSad === true) {
-        randomText = sadPhrases[Math.floor(Math.random() * sadPhrases.length)];
-        mouth.setAttribute('d', 'M46 71 Q 50 67 54 71'); // Frown
+btnDark.addEventListener('click', function () {
+    if (darkModeIsOn == true) {
+        darkModeIsOn = false;
+        document.body.classList.remove('dark-mode');
+        btnDark.innerText = 'Night';
     } else {
-        randomText = isPlaying
-            ? bunnyPhrases[Math.floor(Math.random() * bunnyPhrases.length)]
-            : idlePhrases[Math.floor(Math.random() * idlePhrases.length)];
-        mouth.setAttribute('d', 'M46 68 Q 50 72 54 68'); // Smile
+        darkModeIsOn = true;
+        document.body.classList.add('dark-mode');
+        btnDark.innerText = 'Light';
+    }
+    saveMyData();
+});
+
+btnSound.addEventListener('click', function () {
+    if (soundIsOn == true) {
+        soundIsOn = false;
+        btnSound.innerText = 'Muted';
+    } else {
+        soundIsOn = true;
+        btnSound.innerText = 'Sound';
+    }
+    saveMyData();
+});
+
+// theme dots click
+let themeDots = document.querySelectorAll('.theme-dot');
+for (let i = 0; i < themeDots.length; i++) {
+    themeDots[i].addEventListener('click', function () {
+        changeTheme(this.dataset.theme);
+        saveMyData();
+    });
+}
+
+// Easter Egg
+let clickCount = 0;
+
+setInterval(function () {
+    if (document.body.classList.contains('rainbow-mode') == false) {
+        if (Math.random() > 0.5) {
+            if (myHint) myHint.classList.add('show');
+            setTimeout(function () {
+                if (myHint) myHint.classList.remove('show');
+            }, 5000);
+        }
+    }
+}, 20000);
+
+myTitle.addEventListener('click', function () {
+    clickCount++;
+    if (myHint) {
+        myHint.classList.remove('show');
     }
 
-    speechEl.textContent = randomText;
+    if (clickCount >= 5) {
+        if (document.body.classList.contains('rainbow-mode')) {
+            document.body.classList.remove('rainbow-mode');
+        } else {
+            document.body.classList.add('rainbow-mode');
+        }
+        clickCount = 0;
+        playSound('cheer');
+        setTimeout(function () { playSound('cheer'); }, 100);
+    }
+});
 
-    // Pick random side (0: bottom, 1: top, 2: left, 3: right)
-    var side = Math.floor(Math.random() * 4);
-    var randPos = Math.floor(Math.random() * 60) + 20; // 20% to 80% to avoid corners
 
-    if (side === 0) {
+// Bunny stuff
+let bunnyTimer;
+
+function scheduleBunny() {
+    clearTimeout(bunnyTimer);
+    let delay = Math.random() * 12000 + 8000;
+    bunnyTimer = setTimeout(showBunny, delay);
+}
+
+function showBunny(isSad) {
+    if (isPlayingGame == false && isSad == true) {
+        return;
+    }
+
+    bunnyEl.className = '';
+    bunnyEl.style.top = 'auto';
+    bunnyEl.style.bottom = 'auto';
+    bunnyEl.style.left = 'auto';
+    bunnyEl.style.right = 'auto';
+    bunnyEl.style.transform = '';
+
+    let theFace = document.getElementById('theBunnyFace');
+    let randomText = "";
+
+    if (isSad == true) {
+        let sadWords = ["Oh no!", "Streak lost...", "Don't give up!", "Oops!", "Aww man!", "Try again!"];
+        randomText = sadWords[Math.floor(Math.random() * sadWords.length)];
+
+        theFace.src = "assets/bunny-sad.svg";
+    } else {
+        if (isPlayingGame == true) {
+            let happyWords = ["Good luck!", "You're doing great!", "Ganbare ganbare!", "Machate raho!", "Shabaash!", "Pop 'em all!", "You got this!", "I believe in you!"];
+            randomText = happyWords[Math.floor(Math.random() * happyWords.length)];
+        } else {
+            let idleWords = ["Start fast!", "U lazy as hell", "I'm waiting for u...", "Click Play already!", "Wake up!", "Are we playing or what?", "Boring..."];
+            randomText = idleWords[Math.floor(Math.random() * idleWords.length)];
+        }
+
+        theFace.src = "assets/bunny-happy.svg";
+    }
+
+    speechEl.innerText = randomText;
+
+    let side = Math.floor(Math.random() * 4);
+    let randPos = Math.floor(Math.random() * 60) + 20;
+
+    if (side == 0) {
         bunnyEl.classList.add('side-bottom');
         bunnyEl.style.bottom = '-120px';
         bunnyEl.style.left = randPos + '%';
-    } else if (side === 1) {
+    } else if (side == 1) {
         bunnyEl.classList.add('side-top');
         bunnyEl.style.top = '-120px';
         bunnyEl.style.left = randPos + '%';
-    } else if (side === 2) {
+    } else if (side == 2) {
         bunnyEl.classList.add('side-left');
         bunnyEl.style.left = '-120px';
         bunnyEl.style.top = randPos + '%';
-    } else if (side === 3) {
+    } else if (side == 3) {
         bunnyEl.classList.add('side-right');
         bunnyEl.style.right = '-120px';
         bunnyEl.style.top = randPos + '%';
     }
 
-    // Small delay to let position apply before peeking
     setTimeout(function () {
-        if (side === 0) bunnyEl.style.transform = 'translateY(-110px)';
-        if (side === 1) bunnyEl.style.transform = 'translateY(110px)';
-        if (side === 2) bunnyEl.style.transform = 'translateX(110px)';
-        if (side === 3) bunnyEl.style.transform = 'translateX(-110px)';
+        if (side == 0) bunnyEl.style.transform = 'translateY(-110px)';
+        if (side == 1) bunnyEl.style.transform = 'translateY(110px)';
+        if (side == 2) bunnyEl.style.transform = 'translateX(110px)';
+        if (side == 3) bunnyEl.style.transform = 'translateX(-110px)';
 
         bunnyEl.classList.add('peek');
 
-        if (soundOn && audioCtx) {
-            if (isSad === true) {
-                playSound(400, 0.05);
-                setTimeout(function () { playSound(300, 0.05); }, 150);
-            } else {
-                playSound(800, 0.05);
-                setTimeout(function () { playSound(1000, 0.05); }, 80);
-            }
+        if (isSad == true) {
+            playSound('miss');
+        } else {
+            playSound('cheer');
         }
     }, 50);
 
-    // Bunny timer
     bunnyTimer = setTimeout(function () {
-        bunnyEl.style.transform = ''; // drops back off screen
+        bunnyEl.style.transform = '';
         bunnyEl.classList.remove('peek');
         scheduleBunny();
     }, 3000);
 }
 
-function catchBunny() {
-    if (!isPlaying) return;
+function catchTheBunny() {
+    if (isPlayingGame == false) return;
 
     bunnyEl.style.transform = '';
     bunnyEl.classList.remove('peek');
     clearTimeout(bunnyTimer);
 
-    // reset mouth to smile
-    document.getElementById('bunnyMouth').setAttribute('d', 'M46 68 Q 50 72 54 68');
+    document.getElementById('theBunnyFace').src = 'assets/bunny-happy.svg';
 
-    score += 25;
-    if (score > best) best = score;
+    myScore = myScore + 25;
+    if (myScore > myBestScore) {
+        myBestScore = myScore;
+    }
 
     scoreDisplay.classList.remove('score-pop');
-    void scoreDisplay.offsetWidth;
-    scoreDisplay.classList.add('score-pop');
+    setTimeout(function () {
+        scoreDisplay.classList.add('score-pop');
+    }, 10);
 
-    updateDisplay();
-    save();
+    updateScoreText();
+    saveMyData();
 
-    showFloatingText(bunnyEl, '+25 BUNNY!', true);
-    if (soundOn && audioCtx) {
-        playSound(900, 0.1);
-        setTimeout(function () { playSound(1200, 0.15); }, 100);
-    }
+    // show text
+    let rect = bunnyEl.getBoundingClientRect();
+    let popDiv = document.createElement('div');
+    popDiv.className = 'pop-text golden-text';
+    popDiv.innerText = '+25 BUNNY!';
+    popDiv.style.left = (rect.left + rect.width / 2) + 'px';
+    popDiv.style.top = rect.top + 'px';
+    document.body.appendChild(popDiv);
+    setTimeout(function () { popDiv.remove(); }, 800);
+
+    playSound('cheer');
+    setTimeout(function () { playSound('cheer'); }, 100);
 
     scheduleBunny();
 }
 
 bunnyEl.addEventListener('mousedown', function (e) {
-    if (e.button !== 0 || !bunnyEl.classList.contains('peek')) return;
-    catchBunny();
+    if (e.button !== 0) return;
+    if (bunnyEl.classList.contains('peek') == false) return;
+    catchTheBunny();
 });
 
-bunnyEl.addEventListener('touchstart', function (e) {
-    e.preventDefault();
-    if (!bunnyEl.classList.contains('peek')) return;
-    catchBunny();
-}, { passive: false });
+// run on start
+createBoard();
+changeTheme(currentThemeColor);
 
-function init() {
-    createBoard();
-    applyTheme(currentTheme);
-    document.body.classList.toggle('dark-mode', darkMode);
-    darkBtn.textContent = darkMode ? 'Light' : 'Night';
-    soundBtn.textContent = soundOn ? 'Sound' : 'Muted';
-    updateDisplay();
-    scheduleBunny();
+if (darkModeIsOn == true) {
+    document.body.classList.add('dark-mode');
+    btnDark.innerText = 'Light';
+} else {
+    btnDark.innerText = 'Night';
 }
 
-init();
+if (soundIsOn == true) {
+    btnSound.innerText = 'Sound';
+} else {
+    btnSound.innerText = 'Muted';
+}
+
+updateScoreText();
+scheduleBunny();
